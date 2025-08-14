@@ -36,33 +36,26 @@ class FFMpegCropService {
     try {
       print('미디어 타입 감지 시작: $inputMedia');
       final result = await Process.run(ffmpegPath, ['-i', inputMedia]);
-      final stderr = result.stderr.toString().toLowerCase();
-      print('FFmpeg 출력 (소문자): $stderr');
+      final stderr = result.stderr.toString();
+      print('FFmpeg 원본 출력: $stderr');
 
-      // 이미지 포맷 감지
-      if (stderr.contains('image2') ||
-          stderr.contains('mjpeg') ||
-          stderr.contains('png') ||
-          stderr.contains('jpeg') ||
-          stderr.contains('bmp') ||
-          stderr.contains('gif')) {
-        print('이미지로 감지됨');
-        return MediaType.image;
-      }
+      final stderrLower = stderr.toLowerCase();
+      print('FFmpeg 출력 (소문자): $stderrLower');
 
-      // 비디오 포맷 감지
-      if (stderr.contains('video:') ||
-          stderr.contains('duration:') ||
-          stderr.contains('time=')) {
-        print('비디오로 감지됨');
-        return MediaType.video;
-      }
-
-      // 파일 확장자로 판단
+      // 파일 확장자로 먼저 판단 (더 신뢰할 수 있는 방법)
       final extension = inputMedia.split('.').last.toLowerCase();
       print('파일 확장자: $extension');
 
-      if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].contains(extension)) {
+      if ([
+        'jpg',
+        'jpeg',
+        'png',
+        'gif',
+        'bmp',
+        'webp',
+        'tiff',
+        'tga',
+      ].contains(extension)) {
         print('확장자로 이미지로 감지됨');
         return MediaType.image;
       } else if ([
@@ -73,9 +66,36 @@ class FFMpegCropService {
         'wmv',
         'flv',
         'webm',
+        'm4v',
+        '3gp',
+        'ts',
+        'mts',
+        'm2ts',
       ].contains(extension)) {
         print('확장자로 비디오로 감지됨');
         return MediaType.video;
+      }
+
+      // FFmpeg 출력 기반 감지 (백업 방법)
+      // 비디오 포맷 감지
+      if (stderrLower.contains('stream #0:0: video') ||
+          stderrLower.contains('video:') && stderrLower.contains('stream') ||
+          stderrLower.contains('duration:') && stderrLower.contains('video:')) {
+        print('비디오로 감지됨 (FFmpeg 출력 기반)');
+        return MediaType.video;
+      }
+
+      // 이미지 포맷 감지
+      if (stderrLower.contains('image2') ||
+          stderrLower.contains('mjpeg') ||
+          stderrLower.contains('png') ||
+          stderrLower.contains('jpeg') ||
+          stderrLower.contains('bmp') ||
+          stderrLower.contains('gif') ||
+          stderrLower.contains('image:') ||
+          stderrLower.contains('image ')) {
+        print('이미지로 감지됨 (FFmpeg 출력 기반)');
+        return MediaType.image;
       }
 
       print('미디어 타입을 감지할 수 없음');
@@ -145,7 +165,7 @@ class FFMpegCropService {
       '-y',
       '-i',
       inputMedia,
-      '-filter:v',
+      '-vf',
       'crop=${region.width.toInt()}:${region.height.toInt()}:${region.x.toInt()}:${region.y.toInt()}',
       outputImage,
     ];
@@ -153,29 +173,52 @@ class FFMpegCropService {
     try {
       print('이미지 크롭 실행: $ffmpegPath ${args.join(' ')}');
 
-      final process = await Process.start(ffmpegPath, args);
-
-      // FFmpeg 출력을 모니터링
-      process.stderr.transform(utf8.decoder).listen((data) {
-        print('FFmpeg stderr: $data');
-      });
-
-      process.stdout.transform(utf8.decoder).listen((data) {
-        print('FFmpeg stdout: $data');
-      });
-
-      // 이미지는 즉시 완료되므로 진행률을 바로 100%로 설정
-      _progressMap[region.name] = 1.0;
+      // 이미지 크롭 시작 시 0%로 설정
+      _progressMap[region.name] = 0.0;
       double totalProgress =
           _progressMap.values.fold(0.0, (a, b) => a + b) / _progressMap.length;
+      onProgress(region.name, 0.0, totalProgress, "00:00");
+      print('이미지 크롭 시작: ${region.name} - 0%');
 
-      onProgress(region.name, 1.0, totalProgress, "00:00");
+      // 이미지 크롭 진행 중 (50%)
+      await Future.delayed(Duration(milliseconds: 50));
+      _progressMap[region.name] = 0.5;
+      totalProgress =
+          _progressMap.values.fold(0.0, (a, b) => a + b) / _progressMap.length;
+      onProgress(region.name, 0.5, totalProgress, "00:00");
+      print('이미지 크롭 진행 중: ${region.name} - 50%');
 
-      final exitCode = await process.exitCode;
-      print('이미지 크롭 완료, exitCode: $exitCode');
+      // FFmpeg 실행 (동기 방식으로 변경)
+      print('FFmpeg 실행 중...');
+      final result = await Process.run(ffmpegPath, args);
+      final exitCode = result.exitCode;
+      print('FFmpeg 실행 완료, exitCode: $exitCode');
+      print('FFmpeg stderr: ${result.stderr}');
+      print('FFmpeg stdout: ${result.stdout}');
+      print('이미지 크롭 완료, exitCode: $exitCode, 출력 파일: $outputImage');
 
       if (exitCode == 0) {
+        // 출력 파일 존재 여부 확인
+        final outputFile = File(outputImage);
+        if (await outputFile.exists()) {
+          final fileSize = await outputFile.length();
+          print('이미지 크롭 성공: $outputImage (크기: $fileSize bytes)');
+
+          // 크롭 완료 후 진행률을 100%로 설정
+          _progressMap[region.name] = 1.0;
+          totalProgress =
+              _progressMap.values.fold(0.0, (a, b) => a + b) /
+              _progressMap.length;
+          onProgress(region.name, 1.0, totalProgress, "00:00");
+        } else {
+          print('경고: 출력 파일이 생성되지 않음: $outputImage');
+        }
+
+        // 크롭 완료 신호 전송 (성공/실패 상관없이)
+        print('이미지 크롭 완료 신호 전송: ${region.name}');
         onRegionComplete(region.name);
+      } else {
+        print('이미지 크롭 실패: exitCode $exitCode');
       }
       return exitCode;
     } catch (e) {
@@ -209,16 +252,13 @@ class FFMpegCropService {
     try {
       print('비디오 크롭 실행: $ffmpegPath ${args.join(' ')}');
 
+      // 비디오 크롭 시작 시 0%로 설정
+      _progressMap[region.name] = 0.0;
+      double totalProgress =
+          _progressMap.values.fold(0.0, (a, b) => a + b) / _progressMap.length;
+      onProgress(region.name, 0.0, totalProgress, "00:00");
+
       final process = await Process.start(ffmpegPath, args);
-
-      // FFmpeg 출력을 모니터링
-      process.stderr.transform(utf8.decoder).listen((data) {
-        print('FFmpeg stderr: $data');
-      });
-
-      process.stdout.transform(utf8.decoder).listen((data) {
-        print('FFmpeg stdout: $data');
-      });
 
       // 비디오 진행률 모니터링
       process.stderr
@@ -226,13 +266,41 @@ class FFMpegCropService {
           .transform(const LineSplitter())
           .listen((line) {
             print('FFmpeg line: $line');
+            print('라인에 time= 포함 여부: ${line.contains('time=')}');
+            print('라인에 frame= 포함 여부: ${line.contains('frame=')}');
 
-            // 시간 정보 추출 (여러 형식 지원)
-            RegExp? timeRegex;
-            if (line.contains('time=')) {
-              timeRegex = RegExp(r'time=(\d+:\d+:\d+\.\d+)');
-            } else if (line.contains('frame=')) {
-              // frame 기반 진행률도 지원
+            // 시간 정보 추출 (time= 형식)
+            final timeMatch = RegExp(
+              r'time=(\d+:\d+:\d+\.\d+)',
+            ).firstMatch(line);
+            print('timeMatch 결과: $timeMatch');
+            print('_videoDuration 값: $_videoDuration');
+
+            if (timeMatch != null && _videoDuration > 0) {
+              final currentTime = _parseTimeToSeconds(timeMatch.group(1)!);
+              final progress = (currentTime / _videoDuration).clamp(0.0, 1.0);
+
+              print('비디오 진행률: $currentTime / $_videoDuration = $progress');
+
+              _progressMap[region.name] = progress;
+              double totalProgress =
+                  _progressMap.values.fold(0.0, (a, b) => a + b) /
+                  _progressMap.length;
+
+              String eta = "";
+              if (_startTime != null && totalProgress > 0) {
+                final elapsed = DateTime.now()
+                    .difference(_startTime!)
+                    .inSeconds;
+                final estimatedTotal = elapsed / totalProgress;
+                final remaining = estimatedTotal - elapsed;
+                eta = _formatSeconds(remaining);
+              }
+
+              onProgress(region.name, progress, totalProgress, eta);
+            }
+            // 프레임 정보 추출 (frame= 형식)
+            else if (line.contains('frame=')) {
               final frameMatch = RegExp(r'frame=\s*(\d+)').firstMatch(line);
               if (frameMatch != null && _videoDuration > 0) {
                 // 프레임 기반 진행률 계산 (대략적)
@@ -240,56 +308,44 @@ class FFMpegCropService {
                 final totalFrames = (_videoDuration * 30).round(); // 30fps 가정
                 final progress = (currentFrame / totalFrames).clamp(0.0, 1.0);
 
-                _progressMap[region.name] = progress;
-                double totalProgress =
-                    _progressMap.values.fold(0.0, (a, b) => a + b) /
-                    _progressMap.length;
+                print('프레임 진행률: $currentFrame / $totalFrames = $progress');
 
-                String eta = "";
-                if (_startTime != null && totalProgress > 0) {
-                  final elapsed = DateTime.now()
-                      .difference(_startTime!)
-                      .inSeconds;
-                  final estimatedTotal = elapsed / totalProgress;
-                  final remaining = estimatedTotal - elapsed;
-                  eta = _formatSeconds(remaining);
+                // 진행률이 이전보다 증가한 경우에만 업데이트
+                if (progress > (_progressMap[region.name] ?? 0.0)) {
+                  _progressMap[region.name] = progress;
+                  double totalProgress =
+                      _progressMap.values.fold(0.0, (a, b) => a + b) /
+                      _progressMap.length;
+
+                  String eta = "";
+                  if (_startTime != null && totalProgress > 0) {
+                    final elapsed = DateTime.now()
+                        .difference(_startTime!)
+                        .inSeconds;
+                    final estimatedTotal = elapsed / totalProgress;
+                    final remaining = estimatedTotal - elapsed;
+                    eta = _formatSeconds(remaining);
+                  }
+
+                  onProgress(region.name, progress, totalProgress, eta);
                 }
-
-                onProgress(region.name, progress, totalProgress, eta);
-              }
-              return;
-            }
-
-            if (timeRegex != null) {
-              final timeMatch = timeRegex.firstMatch(line);
-              if (timeMatch != null && _videoDuration > 0) {
-                final currentTime = _parseTimeToSeconds(timeMatch.group(1)!);
-                final progress = (currentTime / _videoDuration).clamp(0.0, 1.0);
-
-                _progressMap[region.name] = progress;
-                double totalProgress =
-                    _progressMap.values.fold(0.0, (a, b) => a + b) /
-                    _progressMap.length;
-
-                String eta = "";
-                if (_startTime != null && totalProgress > 0) {
-                  final elapsed = DateTime.now()
-                      .difference(_startTime!)
-                      .inSeconds;
-                  final estimatedTotal = elapsed / totalProgress;
-                  final remaining = estimatedTotal - elapsed;
-                  eta = _formatSeconds(remaining);
-                }
-
-                onProgress(region.name, progress, totalProgress, eta);
               }
             }
           });
 
       final exitCode = await process.exitCode;
-      print('비디오 크롭 완료, exitCode: $exitCode');
+      print('비디오 크롭 완료, exitCode: $exitCode, 출력 파일: $outputVideo');
 
       if (exitCode == 0) {
+        // 출력 파일 존재 여부 확인
+        final outputFile = File(outputVideo);
+        if (await outputFile.exists()) {
+          final fileSize = await outputFile.length();
+          print('비디오 크롭 성공: $outputVideo (크기: $fileSize bytes)');
+        } else {
+          print('경고: 출력 파일이 생성되지 않음: $outputVideo');
+        }
+
         _progressMap[region.name] = 1.0;
         double totalProgress =
             _progressMap.values.fold(0.0, (a, b) => a + b) /
@@ -297,6 +353,8 @@ class FFMpegCropService {
 
         onProgress(region.name, 1.0, totalProgress, "00:00");
         onRegionComplete(region.name);
+      } else {
+        print('비디오 크롭 실패: exitCode $exitCode');
       }
       return exitCode;
     } catch (e) {
@@ -332,6 +390,13 @@ class FFMpegCropService {
     }
     _startTime = DateTime.now();
 
+    // 초기 진행률을 모든 영역에 대해 0%로 설정
+    for (var region in regions) {
+      double totalProgress =
+          _progressMap.values.fold(0.0, (a, b) => a + b) / regions.length;
+      onProgress(region.name, 0.0, totalProgress, "00:00");
+    }
+
     List<Future<int>> futures = [];
     for (var region in regions) {
       if (_mediaType == MediaType.image) {
@@ -341,7 +406,9 @@ class FFMpegCropService {
       }
     }
 
+    print('모든 크롭 작업 완료 대기 중...');
     await Future.wait(futures);
+    print('모든 크롭 작업 완료됨. 전체 완료 신호 전송');
     onAllComplete();
   }
 

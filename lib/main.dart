@@ -496,11 +496,17 @@ class _MyHomePageState extends State<MyHomePage> {
           print(
             '진행률 업데이트: $regionName - $progress, 전체: $totalProgress, ETA: $eta',
           );
+          print('현재 _regionProgress 상태: $_regionProgress');
+          print('현재 _totalProgress 상태: $_totalProgress');
+
           setState(() {
             _regionProgress[regionName] = progress;
             _totalProgress = totalProgress;
             _currentEta = eta;
           });
+
+          print('업데이트 후 _regionProgress 상태: $_regionProgress');
+          print('업데이트 후 _totalProgress 상태: $_totalProgress');
         },
         onRegionComplete: (regionName) {
           print('영역 크롭 완료: $regionName');
