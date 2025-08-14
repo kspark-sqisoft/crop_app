@@ -83,6 +83,10 @@ class _MyHomePageState extends State<MyHomePage> {
       logger.d('file.name:${file.name}');
       logger.d('file.mimeType:${file.mimeType}');
       logger.d('file.path: ${file.path}');
+
+      // 새로운 파일 로드 시 기존 크롭 영역들 초기화
+      _clearCropRegions();
+
       final bytes = await file.readAsBytes();
       _fileName = file.name;
       if (_isImage(file.mimeType, file.path)) {
@@ -92,7 +96,7 @@ class _MyHomePageState extends State<MyHomePage> {
         // 이미지 크기 얻기
         final ui.Image image = await _loadUiImage(bytes);
         _mediaSize = Size(image.width.toDouble(), image.height.toDouble());
-        logger.d('Media(Video) Size: $_mediaSize');
+        logger.d('Media(Image) Size: $_mediaSize');
       } else if (_isVideo(file.mimeType, file.path)) {
         _fileType = FileType.video;
         final playable = await Media.memory(bytes);
@@ -163,6 +167,18 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
+  // 크롭 영역들만 초기화하는 메서드
+  void _clearCropRegions() {
+    setState(() {
+      _cropRegions.clear();
+      _nextRegionId = 1;
+      _selectedRegionId = null;
+      _tempInputValues.clear(); // 임시 입력값들도 초기화
+      _tempNameValues.clear(); // 임시 이름 값들도 초기화
+    });
+  }
+
+  // 완전 초기화 (모든 것을 리셋)
   void _reset() {
     logger.d('reset');
     setState(() {
@@ -369,6 +385,10 @@ class _MyHomePageState extends State<MyHomePage> {
                   logger.d('file.name:${file.name}');
                   logger.d('file.mimeType:${file.mimeType}');
                   logger.d('file.path: ${file.path}');
+
+                  // 새로운 파일 드롭 시 기존 크롭 영역들 초기화
+                  _clearCropRegions();
+
                   _fileName = file.name;
                   final bytes = await file.readAsBytes();
 
@@ -393,9 +413,6 @@ class _MyHomePageState extends State<MyHomePage> {
                     ); // 스테이트가 안들어 오는 문제
                     if (_player.state.width != null &&
                         _player.state.height != null) {
-                      logger.d(
-                        '-------------------------------------------------  ${_player.state}',
-                      );
                       _mediaSize = Size(
                         _player.state.width!.toDouble(),
                         _player.state.height!.toDouble(),
@@ -1198,18 +1215,35 @@ class _MyHomePageState extends State<MyHomePage> {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
+                  // 영역 초기화 버튼
                   IconButton(
-                    onPressed: _reset,
+                    onPressed: _clearCropRegions,
                     icon: const Icon(Icons.refresh, size: 18),
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(
                       minWidth: 24,
                       minHeight: 24,
                     ),
-                    tooltip: '초기화',
+                    tooltip: '영역 초기화',
                     style: IconButton.styleFrom(
                       backgroundColor: Colors.orange[100],
                       foregroundColor: Colors.orange[700],
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  // 완전 초기화 버튼
+                  IconButton(
+                    onPressed: _reset,
+                    icon: const Icon(Icons.delete_forever, size: 18),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 24,
+                      minHeight: 24,
+                    ),
+                    tooltip: '완전 초기화',
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.red[100],
+                      foregroundColor: Colors.red[700],
                     ),
                   ),
                 ],
