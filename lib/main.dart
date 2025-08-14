@@ -53,6 +53,11 @@ class _MyHomePageState extends State<MyHomePage> {
 
   bool _isSettingsPanelOpen = false;
 
+  // 임시 입력값을 저장할 변수들
+  final Map<int, Map<String, String>> _tempInputValues = {};
+  // 임시 이름 값을 저장할 변수들
+  final Map<int, String> _tempNameValues = {};
+
   @override
   void initState() {
     super.initState();
@@ -169,6 +174,8 @@ class _MyHomePageState extends State<MyHomePage> {
       _isSettingsPanelOpen = false;
       _fileName = null;
       _imageBytes = null;
+      _tempInputValues.clear(); // 임시 입력값들도 초기화
+      _tempNameValues.clear(); // 임시 이름 값들도 초기화
     });
     _player.stop();
   }
@@ -247,6 +254,80 @@ class _MyHomePageState extends State<MyHomePage> {
       final region = _cropRegions[index];
       _updateCropRegion(index, region.copyWith(name: newName.trim()));
     }
+  }
+
+  void _updateTempInputValue(int index, String field, String value) {
+    if (!_tempInputValues.containsKey(index)) {
+      _tempInputValues[index] = {};
+    }
+    _tempInputValues[index]![field] = value;
+  }
+
+  void _updateTempNameValue(int index, String value) {
+    _tempNameValues[index] = value;
+  }
+
+  void _applyAllChanges(int index) {
+    final tempValues = _tempInputValues[index];
+    final tempName = _tempNameValues[index];
+    if (tempValues == null && tempName == null) return;
+
+    final region = _cropRegions[index];
+    double? newX, newY, newWidth, newHeight;
+    String? newName;
+    bool hasChanges = false;
+
+    // 이름 처리
+    if (tempName != null && tempName.trim().isNotEmpty) {
+      newName = tempName.trim();
+      hasChanges = true;
+    }
+
+    // X 좌표 처리
+    if (tempValues?.containsKey('x') == true) {
+      newX = double.tryParse(tempValues!['x']!);
+      if (newX != null) hasChanges = true;
+    }
+
+    // Y 좌표 처리
+    if (tempValues?.containsKey('y') == true) {
+      newY = double.tryParse(tempValues!['y']!);
+      if (newY != null) hasChanges = true;
+    }
+
+    // Width 처리
+    if (tempValues?.containsKey('width') == true) {
+      newWidth = double.tryParse(tempValues!['width']!);
+      if (newWidth != null && newWidth > 0) hasChanges = true;
+    }
+
+    // Height 처리
+    if (tempValues?.containsKey('height') == true) {
+      newHeight = double.tryParse(tempValues!['height']!);
+      if (newHeight != null && newHeight > 0) hasChanges = true;
+    }
+
+    if (hasChanges) {
+      final updatedRegion = region.copyWith(
+        name: newName ?? region.name,
+        x: newX ?? region.x,
+        y: newY ?? region.y,
+        width: newWidth ?? region.width,
+        height: newHeight ?? region.height,
+      );
+      _updateCropRegion(index, updatedRegion);
+
+      // 임시 값들 초기화
+      _tempInputValues.remove(index);
+      _tempNameValues.remove(index);
+      setState(() {});
+    }
+  }
+
+  void _resetTempValues(int index) {
+    _tempInputValues.remove(index);
+    _tempNameValues.remove(index);
+    setState(() {});
   }
 
   void _selectCropRegion(int regionId) {
@@ -499,11 +580,12 @@ class _MyHomePageState extends State<MyHomePage> {
                                                               width: 80,
                                                               height: 20,
                                                               child: TextField(
-                                                                controller:
-                                                                    TextEditingController(
-                                                                      text: region
+                                                                controller: TextEditingController(
+                                                                  text:
+                                                                      _tempNameValues[index] ??
+                                                                      region
                                                                           .name,
-                                                                    ),
+                                                                ),
                                                                 style: const TextStyle(
                                                                   color: Colors
                                                                       .red,
@@ -522,6 +604,12 @@ class _MyHomePageState extends State<MyHomePage> {
                                                                           .none,
                                                                   isDense: true,
                                                                 ),
+                                                                onChanged: (value) {
+                                                                  _updateTempNameValue(
+                                                                    index,
+                                                                    value,
+                                                                  );
+                                                                },
                                                                 onSubmitted: (value) {
                                                                   final index =
                                                                       _cropRegions.indexWhere(
@@ -534,6 +622,9 @@ class _MyHomePageState extends State<MyHomePage> {
                                                                     _updateCropRegionName(
                                                                       index,
                                                                       value,
+                                                                    );
+                                                                    _resetTempValues(
+                                                                      index,
                                                                     );
                                                                   }
                                                                 },
@@ -583,9 +674,11 @@ class _MyHomePageState extends State<MyHomePage> {
                                                                 height: 34,
                                                                 child: TextField(
                                                                   controller: TextEditingController(
-                                                                    text: (region.x)
-                                                                        .toInt()
-                                                                        .toString(),
+                                                                    text:
+                                                                        _tempInputValues[index]?['x'] ??
+                                                                        (region.x)
+                                                                            .toInt()
+                                                                            .toString(),
                                                                   ),
                                                                   style: const TextStyle(
                                                                     fontSize:
@@ -612,6 +705,14 @@ class _MyHomePageState extends State<MyHomePage> {
                                                                           ),
                                                                     ),
                                                                   ),
+                                                                  onChanged:
+                                                                      (value) {
+                                                                        _updateTempInputValue(
+                                                                          index,
+                                                                          'x',
+                                                                          value,
+                                                                        );
+                                                                      },
                                                                   onSubmitted: (value) {
                                                                     final newX =
                                                                         double.tryParse(
@@ -627,6 +728,9 @@ class _MyHomePageState extends State<MyHomePage> {
                                                                         index,
                                                                         updatedRegion,
                                                                       );
+                                                                      _resetTempValues(
+                                                                        index,
+                                                                      );
                                                                     }
                                                                   },
                                                                 ),
@@ -640,9 +744,11 @@ class _MyHomePageState extends State<MyHomePage> {
                                                                 height: 34,
                                                                 child: TextField(
                                                                   controller: TextEditingController(
-                                                                    text: (region.y)
-                                                                        .toInt()
-                                                                        .toString(),
+                                                                    text:
+                                                                        _tempInputValues[index]?['y'] ??
+                                                                        (region.y)
+                                                                            .toInt()
+                                                                            .toString(),
                                                                   ),
                                                                   style: const TextStyle(
                                                                     fontSize:
@@ -669,6 +775,14 @@ class _MyHomePageState extends State<MyHomePage> {
                                                                           ),
                                                                     ),
                                                                   ),
+                                                                  onChanged:
+                                                                      (value) {
+                                                                        _updateTempInputValue(
+                                                                          index,
+                                                                          'y',
+                                                                          value,
+                                                                        );
+                                                                      },
                                                                   onSubmitted: (value) {
                                                                     final newY =
                                                                         double.tryParse(
@@ -683,6 +797,9 @@ class _MyHomePageState extends State<MyHomePage> {
                                                                       _updateCropRegion(
                                                                         index,
                                                                         updatedRegion,
+                                                                      );
+                                                                      _resetTempValues(
+                                                                        index,
                                                                       );
                                                                     }
                                                                   },
@@ -704,9 +821,11 @@ class _MyHomePageState extends State<MyHomePage> {
                                                                 height: 34,
                                                                 child: TextField(
                                                                   controller: TextEditingController(
-                                                                    text: (region.width)
-                                                                        .toInt()
-                                                                        .toString(),
+                                                                    text:
+                                                                        _tempInputValues[index]?['width'] ??
+                                                                        (region.width)
+                                                                            .toInt()
+                                                                            .toString(),
                                                                   ),
                                                                   style: const TextStyle(
                                                                     fontSize:
@@ -733,6 +852,13 @@ class _MyHomePageState extends State<MyHomePage> {
                                                                           ),
                                                                     ),
                                                                   ),
+                                                                  onChanged: (value) {
+                                                                    _updateTempInputValue(
+                                                                      index,
+                                                                      'width',
+                                                                      value,
+                                                                    );
+                                                                  },
                                                                   onSubmitted: (value) {
                                                                     final newWidth =
                                                                         double.tryParse(
@@ -751,6 +877,9 @@ class _MyHomePageState extends State<MyHomePage> {
                                                                         index,
                                                                         updatedRegion,
                                                                       );
+                                                                      _resetTempValues(
+                                                                        index,
+                                                                      );
                                                                     }
                                                                   },
                                                                 ),
@@ -764,9 +893,11 @@ class _MyHomePageState extends State<MyHomePage> {
                                                                 height: 34,
                                                                 child: TextField(
                                                                   controller: TextEditingController(
-                                                                    text: (region.height)
-                                                                        .toInt()
-                                                                        .toString(),
+                                                                    text:
+                                                                        _tempInputValues[index]?['height'] ??
+                                                                        (region.height)
+                                                                            .toInt()
+                                                                            .toString(),
                                                                   ),
                                                                   style: const TextStyle(
                                                                     fontSize:
@@ -793,6 +924,13 @@ class _MyHomePageState extends State<MyHomePage> {
                                                                           ),
                                                                     ),
                                                                   ),
+                                                                  onChanged: (value) {
+                                                                    _updateTempInputValue(
+                                                                      index,
+                                                                      'height',
+                                                                      value,
+                                                                    );
+                                                                  },
                                                                   onSubmitted: (value) {
                                                                     final newHeight =
                                                                         double.tryParse(
@@ -810,11 +948,59 @@ class _MyHomePageState extends State<MyHomePage> {
                                                                         index,
                                                                         updatedRegion,
                                                                       );
+                                                                      _resetTempValues(
+                                                                        index,
+                                                                      );
                                                                     }
                                                                   },
                                                                 ),
                                                               ),
                                                             ],
+                                                          ),
+                                                          const SizedBox(
+                                                            height: 8,
+                                                          ),
+                                                          // 적용하기 버튼
+                                                          SizedBox(
+                                                            width: 120,
+                                                            height: 28,
+                                                            child: ElevatedButton(
+                                                              onPressed: () {
+                                                                _applyAllChanges(
+                                                                  index,
+                                                                );
+                                                              },
+                                                              style: ElevatedButton.styleFrom(
+                                                                backgroundColor:
+                                                                    Colors
+                                                                        .blue[600],
+                                                                foregroundColor:
+                                                                    Colors
+                                                                        .white,
+                                                                padding:
+                                                                    const EdgeInsets.symmetric(
+                                                                      horizontal:
+                                                                          8,
+                                                                      vertical:
+                                                                          4,
+                                                                    ),
+                                                                shape: RoundedRectangleBorder(
+                                                                  borderRadius:
+                                                                      BorderRadius.circular(
+                                                                        3,
+                                                                      ),
+                                                                ),
+                                                              ),
+                                                              child: const Text(
+                                                                '적용하기',
+                                                                style: TextStyle(
+                                                                  fontSize: 10,
+                                                                  fontWeight:
+                                                                      FontWeight
+                                                                          .w500,
+                                                                ),
+                                                              ),
+                                                            ),
                                                           ),
                                                         ],
                                                       ),
@@ -1123,7 +1309,9 @@ class _MyHomePageState extends State<MyHomePage> {
                                         Expanded(
                                           child: TextField(
                                             controller: TextEditingController(
-                                              text: region.name,
+                                              text:
+                                                  _tempNameValues[index] ??
+                                                  region.name,
                                             ),
                                             style: TextStyle(
                                               color: isSelected
@@ -1137,11 +1325,18 @@ class _MyHomePageState extends State<MyHomePage> {
                                               border: InputBorder.none,
                                               isDense: true,
                                             ),
+                                            onChanged: (value) {
+                                              _updateTempNameValue(
+                                                index,
+                                                value,
+                                              );
+                                            },
                                             onSubmitted: (value) {
                                               _updateCropRegionName(
                                                 index,
                                                 value,
                                               );
+                                              _resetTempValues(index);
                                             },
                                           ),
                                         ),
@@ -1195,9 +1390,9 @@ class _MyHomePageState extends State<MyHomePage> {
                                           height: 28,
                                           child: TextField(
                                             controller: TextEditingController(
-                                              text: (region.x)
-                                                  .toInt()
-                                                  .toString(),
+                                              text:
+                                                  _tempInputValues[index]?['x'] ??
+                                                  (region.x).toInt().toString(),
                                             ),
                                             style: const TextStyle(
                                               fontSize: 15,
@@ -1212,12 +1407,20 @@ class _MyHomePageState extends State<MyHomePage> {
                                               ),
                                               isDense: true,
                                             ),
+                                            onChanged: (value) {
+                                              _updateTempInputValue(
+                                                index,
+                                                'x',
+                                                value,
+                                              );
+                                            },
                                             onSubmitted: (value) {
                                               _updateCropRegionFromList(
                                                 index,
                                                 value,
                                                 'x',
                                               );
+                                              _resetTempValues(index);
                                             },
                                           ),
                                         ),
@@ -1244,9 +1447,9 @@ class _MyHomePageState extends State<MyHomePage> {
                                           height: 28,
                                           child: TextField(
                                             controller: TextEditingController(
-                                              text: (region.y)
-                                                  .toInt()
-                                                  .toString(),
+                                              text:
+                                                  _tempInputValues[index]?['y'] ??
+                                                  (region.y).toInt().toString(),
                                             ),
                                             style: const TextStyle(
                                               fontSize: 15,
@@ -1261,12 +1464,20 @@ class _MyHomePageState extends State<MyHomePage> {
                                               ),
                                               isDense: true,
                                             ),
+                                            onChanged: (value) {
+                                              _updateTempInputValue(
+                                                index,
+                                                'y',
+                                                value,
+                                              );
+                                            },
                                             onSubmitted: (value) {
                                               _updateCropRegionFromList(
                                                 index,
                                                 value,
                                                 'y',
                                               );
+                                              _resetTempValues(index);
                                             },
                                           ),
                                         ),
@@ -1293,9 +1504,11 @@ class _MyHomePageState extends State<MyHomePage> {
                                           height: 28,
                                           child: TextField(
                                             controller: TextEditingController(
-                                              text: (region.width)
-                                                  .toInt()
-                                                  .toString(),
+                                              text:
+                                                  _tempInputValues[index]?['width'] ??
+                                                  (region.width)
+                                                      .toInt()
+                                                      .toString(),
                                             ),
                                             style: const TextStyle(
                                               fontSize: 15,
@@ -1310,12 +1523,20 @@ class _MyHomePageState extends State<MyHomePage> {
                                               ),
                                               isDense: true,
                                             ),
+                                            onChanged: (value) {
+                                              _updateTempInputValue(
+                                                index,
+                                                'width',
+                                                value,
+                                              );
+                                            },
                                             onSubmitted: (value) {
                                               _updateCropRegionFromList(
                                                 index,
                                                 value,
                                                 'width',
                                               );
+                                              _resetTempValues(index);
                                             },
                                           ),
                                         ),
@@ -1342,9 +1563,11 @@ class _MyHomePageState extends State<MyHomePage> {
                                           height: 28,
                                           child: TextField(
                                             controller: TextEditingController(
-                                              text: (region.height)
-                                                  .toInt()
-                                                  .toString(),
+                                              text:
+                                                  _tempInputValues[index]?['height'] ??
+                                                  (region.height)
+                                                      .toInt()
+                                                      .toString(),
                                             ),
                                             style: const TextStyle(
                                               fontSize: 15,
@@ -1359,16 +1582,61 @@ class _MyHomePageState extends State<MyHomePage> {
                                               ),
                                               isDense: true,
                                             ),
+                                            onChanged: (value) {
+                                              _updateTempInputValue(
+                                                index,
+                                                'height',
+                                                value,
+                                              );
+                                            },
                                             onSubmitted: (value) {
                                               _updateCropRegionFromList(
                                                 index,
                                                 value,
                                                 'height',
                                               );
+                                              _resetTempValues(index);
                                             },
                                           ),
                                         ),
                                       ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              // 적용하기 버튼과 크롭하기 버튼
+                              Row(
+                                children: [
+                                  // 적용하기 버튼
+                                  Expanded(
+                                    child: SizedBox(
+                                      height: 28,
+                                      child: ElevatedButton(
+                                        onPressed: () {
+                                          _applyAllChanges(index);
+                                        },
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.blue[600],
+                                          foregroundColor: Colors.white,
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 4,
+                                          ),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              4,
+                                            ),
+                                          ),
+                                        ),
+                                        child: const Text(
+                                          '적용하기',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ),
                                     ),
                                   ),
                                   const SizedBox(width: 8),
