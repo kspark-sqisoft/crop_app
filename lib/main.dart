@@ -1,7 +1,9 @@
 import 'dart:typed_data';
 import 'dart:ui' as ui;
+import 'dart:io';
 import 'package:crop_app/crop_region.dart';
 import 'package:crop_app/utils.dart';
+import 'package:crop_app/ffmpeg_crop_service.dart';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -43,6 +45,7 @@ class _MyHomePageState extends State<MyHomePage> {
   late final VideoController _controller;
   late final ImagePicker _picker;
   Uint8List? _imageBytes;
+  Uint8List? _videoBytes; // 비디오 파일용 별도 변수 추가
   String? _fileName;
   FileType? _fileType;
   Size? _mediaSize;
@@ -92,6 +95,7 @@ class _MyHomePageState extends State<MyHomePage> {
       if (_isImage(file.mimeType, file.path)) {
         _fileType = FileType.image;
         _imageBytes = bytes;
+        _videoBytes = null; // 이미지일 때 비디오 바이트 초기화
 
         // 이미지 크기 얻기
         final ui.Image image = await _loadUiImage(bytes);
@@ -99,6 +103,9 @@ class _MyHomePageState extends State<MyHomePage> {
         logger.d('Media(Image) Size: $_mediaSize');
       } else if (_isVideo(file.mimeType, file.path)) {
         _fileType = FileType.video;
+        _videoBytes = bytes; // 비디오 바이트 저장
+        _imageBytes = null; // 비디오일 때 이미지 바이트 초기화
+
         final playable = await Media.memory(bytes);
 
         await _player.open(playable, play: true);
@@ -175,6 +182,7 @@ class _MyHomePageState extends State<MyHomePage> {
       _selectedRegionId = null;
       _tempInputValues.clear(); // 임시 입력값들도 초기화
       _tempNameValues.clear(); // 임시 이름 값들도 초기화
+      // _videoBytes는 유지 (미디어는 그대로 두고 영역만 초기화)
     });
   }
 
@@ -190,6 +198,7 @@ class _MyHomePageState extends State<MyHomePage> {
       _isSettingsPanelOpen = false;
       _fileName = null;
       _imageBytes = null;
+      _videoBytes = null; // 비디오 바이트도 초기화
       _tempInputValues.clear(); // 임시 입력값들도 초기화
       _tempNameValues.clear(); // 임시 이름 값들도 초기화
     });
@@ -360,12 +369,194 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
-  void _cropAllRegions() {
-    print('=== 모든 크롭 영역 크롭 시작 ===');
+  // 크롭 서비스 관련 변수들
+  FFMpegCropService? _cropService;
+  bool _isCropping = false;
+  double _totalProgress = 0.0;
+  String _currentEta = '';
+  final Map<String, double> _regionProgress = {};
+
+  void _cropAllRegions() async {
+    if (_cropRegions.isEmpty) {
+      _showSnackBar('크롭할 영역이 없습니다.');
+      return;
+    }
+
+    if (_isCropping) {
+      _showSnackBar('이미 크롭이 진행 중입니다.');
+      return;
+    }
+
+    try {
+      await _startCropProcess();
+    } catch (e) {
+      _showSnackBar('크롭 실패: $e');
+      _isCropping = false;
+      setState(() {});
+    }
   }
 
-  void _cropRegion() {
-    print('=== 크롭 영역 크롭 시작 ===');
+  void _cropRegion() async {
+    if (_selectedRegionId == null) {
+      _showSnackBar('크롭할 영역을 선택해주세요.');
+      return;
+    }
+
+    if (_isCropping) {
+      _showSnackBar('이미 크롭이 진행 중입니다.');
+      return;
+    }
+
+    final selectedRegion = _cropRegions.firstWhere(
+      (r) => r.id == _selectedRegionId,
+    );
+    try {
+      await _startCropProcess(regions: [selectedRegion]);
+    } catch (e) {
+      _showSnackBar('크롭 실패: $e');
+      _isCropping = false;
+      setState(() {});
+    }
+  }
+
+  Future<void> _startCropProcess({List<CropRegion>? regions}) async {
+    if (_fileName == null || _fileType == null) {
+      _showSnackBar('파일이 로드되지 않았습니다.');
+      return;
+    }
+
+    // D 드라이브의 temp 폴더에 저장
+    final outputDir = r'D:\temp';
+    final outputDirectory = Directory(outputDir);
+    if (!await outputDirectory.exists()) {
+      await outputDirectory.create(recursive: true);
+    }
+
+    // 임시 파일 경로 생성 (입력용)
+    final tempDir = await Directory.systemTemp.createTemp('crop_app');
+    final inputPath = '${tempDir.path}/$_fileName';
+
+    print('크롭 시작 - 입력 파일: $inputPath');
+    print('크롭 시작 - 출력 폴더: $outputDir');
+    print('크롭 시작 - 파일 타입: $_fileType');
+
+    // 현재 메모리의 데이터를 임시 파일로 저장
+    if (_fileType == FileType.image && _imageBytes != null) {
+      final file = File(inputPath);
+      await file.writeAsBytes(_imageBytes!);
+      print('이미지 파일 저장 완료: ${file.path}, 크기: ${await file.length()} bytes');
+    } else if (_fileType == FileType.video && _videoBytes != null) {
+      // 비디오 파일을 임시 파일로 저장
+      final file = File(inputPath);
+      await file.writeAsBytes(_videoBytes!);
+      print('비디오 파일 저장 완료: ${file.path}, 크기: ${await file.length()} bytes');
+
+      // 비디오 파일이 제대로 저장되었는지 확인
+      if (await file.length() < 1000) {
+        // 1KB 미만이면 문제가 있을 수 있음
+        print('경고: 비디오 파일이 너무 작습니다. 크기: ${await file.length()} bytes');
+      }
+    } else {
+      _showSnackBar('파일 데이터를 찾을 수 없습니다. 파일을 다시 로드해주세요.');
+      return;
+    }
+
+    final cropRegions = regions ?? _cropRegions;
+
+    setState(() {
+      _isCropping = true;
+      _totalProgress = 0.0;
+      _currentEta = '';
+      _regionProgress.clear();
+      for (var region in cropRegions) {
+        _regionProgress[region.name] = 0.0;
+      }
+    });
+
+    try {
+      // FFmpeg 경로 확인
+      final ffmpegFile = File(r'C:\ffmpeg\bin\ffmpeg.exe');
+      if (!await ffmpegFile.exists()) {
+        throw Exception('FFmpeg를 찾을 수 없습니다: C:\\ffmpeg\\bin\\ffmpeg.exe');
+      }
+      print('FFmpeg 경로 확인 완료: ${ffmpegFile.path}');
+
+      print('FFmpegCropService 생성 시작');
+      _cropService = FFMpegCropService(
+        ffmpegPath: r'C:\ffmpeg\bin\ffmpeg.exe', // FFmpeg 실제 경로
+        inputMedia: inputPath,
+        outputDir: outputDir, // D 드라이브의 temp 폴더에 저장
+      );
+      print('FFmpegCropService 생성 완료');
+
+      print('크롭 실행 시작 - 영역 수: ${cropRegions.length}');
+      await _cropService!.runParallel(
+        regions: cropRegions,
+        onProgress: (regionName, progress, totalProgress, eta) {
+          print(
+            '진행률 업데이트: $regionName - $progress, 전체: $totalProgress, ETA: $eta',
+          );
+          setState(() {
+            _regionProgress[regionName] = progress;
+            _totalProgress = totalProgress;
+            _currentEta = eta;
+          });
+        },
+        onRegionComplete: (regionName) {
+          print('영역 크롭 완료: $regionName');
+          _showSnackBar('$regionName 크롭 완료!');
+        },
+        onAllComplete: () async {
+          print('모든 크롭 완료');
+          setState(() {
+            _isCropping = false;
+          });
+
+          // 결과 파일들을 사용자에게 보여주거나 다운로드 폴더로 이동
+          await _showCropResults(outputDir, cropRegions);
+
+          _showSnackBar('모든 크롭이 완료되었습니다!');
+        },
+      );
+    } catch (e) {
+      print('크롭 실행 중 에러 발생: $e');
+      setState(() {
+        _isCropping = false;
+      });
+      _showSnackBar('크롭 실패: $e');
+    } finally {
+      // 임시 파일 정리
+      try {
+        await tempDir.delete(recursive: true);
+      } catch (e) {
+        print('임시 파일 정리 실패: $e');
+      }
+    }
+  }
+
+  Future<void> _showCropResults(
+    String outputDir,
+    List<CropRegion> regions,
+  ) async {
+    // 결과 파일들을 확인하고 사용자에게 알림
+    final dir = Directory(outputDir);
+    if (await dir.exists()) {
+      final files = await dir.list().toList();
+      final cropFiles = files
+          .where((f) => f is File && f.path.contains('.'))
+          .toList();
+
+      if (cropFiles.isNotEmpty) {
+        _showSnackBar('${cropFiles.length}개의 크롭된 파일이 D:\\temp 폴더에 저장되었습니다.');
+        // 결과 파일들을 D 드라이브의 temp 폴더에 저장 완료
+      }
+    }
+  }
+
+  void _showSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), duration: Duration(seconds: 2)),
+    );
   }
 
   @override
@@ -395,6 +586,7 @@ class _MyHomePageState extends State<MyHomePage> {
                   if (_isImage(file.mimeType, file.path)) {
                     _fileType = FileType.image;
                     _imageBytes = bytes;
+                    _videoBytes = null; // 이미지일 때 비디오 바이트 초기화
                     // 이미지 크기 얻기
                     final ui.Image image = await _loadUiImage(bytes);
                     _mediaSize = Size(
@@ -404,6 +596,9 @@ class _MyHomePageState extends State<MyHomePage> {
                     logger.d('Media(Image) Size: $_mediaSize');
                   } else if (_isVideo(file.mimeType, file.path)) {
                     _fileType = FileType.video;
+                    _videoBytes = bytes; // 비디오 바이트 저장
+                    _imageBytes = null; // 비디오일 때 이미지 바이트 초기화
+
                     final playable = await Media.memory(bytes);
 
                     await _player.open(playable, play: true);
@@ -1682,11 +1877,15 @@ class _MyHomePageState extends State<MyHomePage> {
                                     width: 80,
                                     height: 28,
                                     child: ElevatedButton(
-                                      onPressed: () {
-                                        _cropRegion();
-                                      },
+                                      onPressed: _isCropping
+                                          ? null
+                                          : () {
+                                              _cropRegion();
+                                            },
                                       style: ElevatedButton.styleFrom(
-                                        backgroundColor: Colors.green[600],
+                                        backgroundColor: _isCropping
+                                            ? Colors.grey[400]
+                                            : Colors.green[600],
                                         foregroundColor: Colors.white,
                                         padding: const EdgeInsets.symmetric(
                                           horizontal: 8,
@@ -1698,8 +1897,8 @@ class _MyHomePageState extends State<MyHomePage> {
                                           ),
                                         ),
                                       ),
-                                      child: const Text(
-                                        '크롭하기',
+                                      child: Text(
+                                        _isCropping ? '대기중' : '크롭하기',
                                         style: TextStyle(
                                           fontSize: 11,
                                           fontWeight: FontWeight.w500,
@@ -1717,6 +1916,90 @@ class _MyHomePageState extends State<MyHomePage> {
                   )
                 : Container(),
           ),
+          // 크롭 진행 상황 표시
+          if (_isCropping)
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 5, vertical: 8),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue[50],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue[200]!),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.crop, size: 16, color: Colors.blue[600]),
+                      const SizedBox(width: 8),
+                      Text(
+                        '크롭 진행 중...',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue[700],
+                        ),
+                      ),
+                      const Spacer(),
+                      if (_currentEta.isNotEmpty)
+                        Text(
+                          '예상 완료: $_currentEta',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: Colors.blue[600],
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  // 전체 진행률
+                  LinearProgressIndicator(
+                    value: _totalProgress,
+                    backgroundColor: Colors.blue[100],
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      Colors.blue[600]!,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  // 개별 영역 진행률
+                  ..._regionProgress.entries.map((entry) {
+                    final regionName = entry.key;
+                    final progress = entry.value;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            flex: 3,
+                            child: Text(
+                              regionName,
+                              style: const TextStyle(fontSize: 10),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          Expanded(
+                            flex: 7,
+                            child: LinearProgressIndicator(
+                              value: progress,
+                              backgroundColor: Colors.grey[200],
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.green[600]!,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            '${(progress * 100).toInt()}%',
+                            style: const TextStyle(fontSize: 10),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            ),
           // 모두 크롭 하기 버튼
           if (_cropRegions.isNotEmpty)
             Padding(
@@ -1726,14 +2009,27 @@ class _MyHomePageState extends State<MyHomePage> {
                 children: [
                   Expanded(
                     child: ElevatedButton.icon(
-                      onPressed: _cropAllRegions,
-                      icon: const Icon(Icons.crop, size: 16),
-                      label: const Text(
-                        '모두 크롭 하기',
+                      onPressed: _isCropping ? null : _cropAllRegions,
+                      icon: _isCropping
+                          ? SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  Colors.white,
+                                ),
+                              ),
+                            )
+                          : const Icon(Icons.crop, size: 16),
+                      label: Text(
+                        _isCropping ? '크롭 중...' : '모두 크롭 하기',
                         style: TextStyle(fontSize: 12),
                       ),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue[600],
+                        backgroundColor: _isCropping
+                            ? Colors.grey[400]
+                            : Colors.blue[600],
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(
                           horizontal: 16,
