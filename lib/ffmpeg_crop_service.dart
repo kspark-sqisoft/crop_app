@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'crop_region.dart';
@@ -180,8 +181,8 @@ class FFMpegCropService {
       onProgress(region.name, 0.0, totalProgress, "00:00");
       print('이미지 크롭 시작: ${region.name} - 0%');
 
-      // 이미지 크롭 진행 중 (50%)
-      await Future.delayed(Duration(milliseconds: 50));
+      // 이미지 크롭 진행률 시뮬레이션
+      await Future.delayed(Duration(milliseconds: 100));
       _progressMap[region.name] = 0.5;
       totalProgress =
           _progressMap.values.fold(0.0, (a, b) => a + b) / _progressMap.length;
