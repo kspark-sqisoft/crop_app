@@ -242,6 +242,13 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
+  void _updateCropRegionName(int index, String newName) {
+    if (newName.trim().isNotEmpty) {
+      final region = _cropRegions[index];
+      _updateCropRegion(index, region.copyWith(name: newName.trim()));
+    }
+  }
+
   void _selectCropRegion(int regionId) {
     setState(() {
       _selectedRegionId = regionId;
@@ -471,7 +478,7 @@ class _MyHomePageState extends State<MyHomePage> {
                                                             MainAxisAlignment
                                                                 .center,
                                                         children: [
-                                                          //영역 이름
+                                                          //영역 이름 (편집 가능)
                                                           Container(
                                                             padding:
                                                                 const EdgeInsets.all(
@@ -488,15 +495,48 @@ class _MyHomePageState extends State<MyHomePage> {
                                                                     4,
                                                                   ),
                                                             ),
-                                                            child: Text(
-                                                              region.name,
-                                                              style: const TextStyle(
-                                                                color:
-                                                                    Colors.red,
-                                                                fontSize: 10,
-                                                                fontWeight:
-                                                                    FontWeight
-                                                                        .bold,
+                                                            child: SizedBox(
+                                                              width: 80,
+                                                              height: 20,
+                                                              child: TextField(
+                                                                controller:
+                                                                    TextEditingController(
+                                                                      text: region
+                                                                          .name,
+                                                                    ),
+                                                                style: const TextStyle(
+                                                                  color: Colors
+                                                                      .red,
+                                                                  fontSize: 10,
+                                                                  fontWeight:
+                                                                      FontWeight
+                                                                          .bold,
+                                                                ),
+                                                                decoration: const InputDecoration(
+                                                                  contentPadding:
+                                                                      EdgeInsets.all(
+                                                                        2,
+                                                                      ),
+                                                                  border:
+                                                                      InputBorder
+                                                                          .none,
+                                                                  isDense: true,
+                                                                ),
+                                                                onSubmitted: (value) {
+                                                                  final index =
+                                                                      _cropRegions.indexWhere(
+                                                                        (r) =>
+                                                                            r.id ==
+                                                                            region.id,
+                                                                      );
+                                                                  if (index !=
+                                                                      -1) {
+                                                                    _updateCropRegionName(
+                                                                      index,
+                                                                      value,
+                                                                    );
+                                                                  }
+                                                                },
                                                               ),
                                                             ),
                                                           ),
@@ -1069,25 +1109,44 @@ class _MyHomePageState extends State<MyHomePage> {
                                 mainAxisAlignment:
                                     MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Row(
-                                    children: [
-                                      if (isSelected)
-                                        Icon(
-                                          Icons.check_circle,
-                                          color: region.color,
-                                          size: 16,
+                                  Expanded(
+                                    child: Row(
+                                      children: [
+                                        if (isSelected)
+                                          Icon(
+                                            Icons.check_circle,
+                                            color: region.color,
+                                            size: 16,
+                                          ),
+                                        if (isSelected)
+                                          const SizedBox(width: 4),
+                                        Expanded(
+                                          child: TextField(
+                                            controller: TextEditingController(
+                                              text: region.name,
+                                            ),
+                                            style: TextStyle(
+                                              color: isSelected
+                                                  ? Colors.white
+                                                  : Colors.red,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 14,
+                                            ),
+                                            decoration: const InputDecoration(
+                                              contentPadding: EdgeInsets.all(4),
+                                              border: InputBorder.none,
+                                              isDense: true,
+                                            ),
+                                            onSubmitted: (value) {
+                                              _updateCropRegionName(
+                                                index,
+                                                value,
+                                              );
+                                            },
+                                          ),
                                         ),
-                                      if (isSelected) const SizedBox(width: 4),
-                                      Text(
-                                        region.name,
-                                        style: TextStyle(
-                                          color: isSelected
-                                              ? Colors.white
-                                              : Colors.red,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
                                   IconButton(
                                     icon: Icon(
