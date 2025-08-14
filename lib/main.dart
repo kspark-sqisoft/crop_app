@@ -557,7 +557,10 @@ class _MyHomePageState extends State<MyHomePage> {
                                                       child: Column(
                                                         mainAxisAlignment:
                                                             MainAxisAlignment
-                                                                .center,
+                                                                .start,
+                                                        crossAxisAlignment:
+                                                            CrossAxisAlignment
+                                                                .start,
                                                         children: [
                                                           //영역 이름 (편집 가능)
                                                           Container(
