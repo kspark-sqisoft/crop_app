@@ -312,67 +312,6 @@ class FFMpegCropService {
     }
   }
 
-  /// 별도 스레드에서 실행할 비디오 크롭 함수 (진행률 모니터링 포함)
-  static Future<Map<String, dynamic>> _runVideoCropWithProgress(
-    Map<String, dynamic> params,
-  ) async {
-    final String ffmpegPath = params['ffmpegPath'];
-    final List<String> args = params['args'];
-    final String regionName = params['regionName'];
-    final double videoDuration = params['videoDuration'];
-    final int? startTimeMs = params['startTime'];
-
-    try {
-      print('별도 스레드에서 비디오 크롭 실행: $ffmpegPath ${args.join(' ')}');
-
-      // FFmpeg 실행 (Process.start로 진행률 모니터링)
-      final process = await Process.start(ffmpegPath, args);
-
-      // 진행률 모니터링을 위한 변수들
-      double lastProgress = 0.0;
-      final startTime = startTimeMs != null
-          ? DateTime.fromMillisecondsSinceEpoch(startTimeMs)
-          : DateTime.now();
-      final List<double> progressHistory = [];
-
-      // stderr 스트림 모니터링 (진행률 파싱)
-      process.stderr
-          .transform(utf8.decoder)
-          .transform(const LineSplitter())
-          .listen((line) {
-            // 시간 정보 추출 (time= 형식)
-            final timeMatch = RegExp(
-              r'time=(\d+:\d+:\d+\.\d+)',
-            ).firstMatch(line);
-            if (timeMatch != null && videoDuration > 0) {
-              final currentTime = _parseTimeToSecondsStatic(
-                timeMatch.group(1)!,
-              );
-              final progress = (currentTime / videoDuration).clamp(0.0, 1.0);
-
-              // 진행률이 이전보다 증가한 경우에만 기록
-              if (progress > lastProgress) {
-                lastProgress = progress;
-                progressHistory.add(progress);
-                print(
-                  '별도 스레드에서 비디오 진행률: $regionName - ${(progress * 100).toStringAsFixed(1)}%',
-                );
-              }
-            }
-          });
-
-      // 프로세스 완료 대기
-      final exitCode = await process.exitCode;
-      print('별도 스레드에서 비디오 크롭 완료, exitCode: $exitCode, region: $regionName');
-
-      // 결과와 진행률 히스토리 반환
-      return {'exitCode': exitCode, 'progressHistory': progressHistory};
-    } catch (e) {
-      print('별도 스레드에서 비디오 크롭 실패: $e');
-      return {'exitCode': -1, 'progressHistory': []};
-    }
-  }
-
   /// 정적 함수로 시간 파싱 (별도 스레드에서 사용)
   static double _parseTimeToSecondsStatic(String timeStr) {
     final parts = timeStr.split(':');
@@ -380,32 +319,6 @@ class FFMpegCropService {
     final minutes = double.parse(parts[1]);
     final seconds = double.parse(parts[2]);
     return hours * 3600 + minutes * 60 + seconds;
-  }
-
-  /// 별도 스레드에서 실행할 비디오 크롭 함수 (간단한 버전)
-  static Future<int> _runVideoCropInIsolate(Map<String, dynamic> params) async {
-    final String ffmpegPath = params['ffmpegPath'];
-    final List<String> args = params['args'];
-
-    try {
-      print('별도 스레드에서 비디오 크롭 실행: $ffmpegPath ${args.join(' ')}');
-
-      // FFmpeg 실행 (동기 방식으로 안전하게 실행)
-      final result = await Process.run(ffmpegPath, args);
-      final exitCode = result.exitCode;
-
-      print('별도 스레드에서 비디오 크롭 완료, exitCode: $exitCode');
-
-      if (exitCode != 0) {
-        print('FFmpeg stderr: ${result.stderr}');
-        print('FFmpeg stdout: ${result.stdout}');
-      }
-
-      return exitCode;
-    } catch (e) {
-      print('별도 스레드에서 비디오 크롭 실패: $e');
-      return -1;
-    }
   }
 
   /// 병렬로 크롭을 실행합니다
@@ -455,19 +368,6 @@ class FFMpegCropService {
     await Future.wait(futures);
     print('모든 크롭 작업 완료됨. 전체 완료 신호 전송');
     onAllComplete();
-  }
-
-  /// 단일 크롭을 실행합니다 (하위 호환성을 위해 유지)
-  Future<int> _runSingleCrop(
-    CropRegion region,
-    ProgressCallback onProgress,
-    RegionCompleteCallback onRegionComplete,
-  ) async {
-    if (_mediaType == MediaType.image) {
-      return await _runImageCrop(region, onProgress, onRegionComplete);
-    } else {
-      return await _runVideoCrop(region, onProgress, onRegionComplete);
-    }
   }
 
   /// 미디어 타입을 반환합니다

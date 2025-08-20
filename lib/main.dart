@@ -856,6 +856,7 @@ class _MyHomePageState extends State<MyHomePage> {
                                                             height: 8,
                                                           ),
                                                           // 좌표와 크기 정보
+                                                          /*
                                                           Text(
                                                             'X: ${region.x.toInt()}, Y: ${region.y.toInt()}',
                                                             style:
@@ -880,6 +881,7 @@ class _MyHomePageState extends State<MyHomePage> {
                                                                           .w500,
                                                                 ),
                                                           ),
+                                                          */
                                                           const SizedBox(
                                                             height: 8,
                                                           ),
